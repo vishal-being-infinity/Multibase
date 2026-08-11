@@ -109,8 +109,7 @@ body {
 }
 
 .line, .empty-state { width: 100%; max-width: 880px; }
-.card { width: 100%; max-width: 880px; transition: max-width 0.18s var(--ease); }
-.card:has(.sql-panel-inline:not(.collapsed)) { max-width: 1400px; }
+.card { width: 100%; max-width: 880px; }
 
 /* ---------- empty state ---------- */
 
@@ -226,28 +225,45 @@ body {
 .verdict-ce { background: var(--error-dim); color: var(--error); }
 .ms { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
 
+.query-trigger {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.query-trigger:hover, .query-trigger.active { color: var(--prompt); border-color: var(--prompt); background: var(--prompt-dim); }
+
 .card-text { font-size: 14px; margin: 0; line-height: 1.55; color: var(--text-primary); }
 
-.card-body { display: flex; align-items: stretch; gap: 16px; margin-top: 4px; }
-.card-main { flex: 1 1 460px; max-width: 100%; min-width: 0; }
+.card-body { margin-top: 4px; }
+.card-main { width: 100%; }
 
-/* single persistent container - toggling .collapsed changes flex-basis, the node never remounts */
-.sql-panel-inline {
-  flex: 0 1 460px;
-  min-width: 300px;
-  max-width: 48%;
-  display: flex;
-  flex-direction: column;
+/* ---------- sql accordion (local to the card, sits below card-body) ---------- */
+/* card-main (the chart/table) is a separate sibling above this - toggling
+   this open/closed only pushes the rest of the page down, it can never
+   resize or move card-main's own box. */
+
+.sql-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s var(--ease);
+  margin-top: 10px;
+}
+.sql-collapse.open { grid-template-rows: 1fr; }
+.sql-collapse-inner {
+  overflow: hidden;
+  min-height: 0;
   background: var(--bg-panel-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  overflow: hidden;
-  transition: flex-basis 0.18s var(--ease), min-width 0.18s var(--ease), max-width 0.18s var(--ease);
-}
-.sql-panel-inline.collapsed {
-  flex: 0 0 34px;
-  min-width: 34px;
-  max-width: 34px;
 }
 
 .sql-panel-head {
@@ -256,8 +272,7 @@ body {
   justify-content: space-between;
   gap: 8px;
   border-bottom: 1px solid var(--border);
-  padding: 7px 6px 7px 10px;
-  flex-shrink: 0;
+  padding: 8px 8px 8px 12px;
 }
 .sql-panel-label {
   font-family: var(--font-mono);
@@ -266,7 +281,6 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.sql-panel-actions { display: flex; align-items: center; gap: 2px; }
 .sql-action {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -283,34 +297,11 @@ body {
 .sql-action:hover { color: var(--prompt); background: var(--prompt-dim); }
 .sql-action.copied { color: var(--ac); }
 
-.sql-panel-toggle-collapsed {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 0;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  transition: color 0.15s;
-}
-.sql-panel-toggle-collapsed:hover { color: var(--prompt); }
-.sql-strip-label {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
 .sql {
-  flex: 1;
-  min-height: 0;
   overflow: auto;
+  max-height: 280px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.6;
   background: var(--bg-well);
   padding: 12px 14px;
@@ -461,7 +452,7 @@ body {
 .quick-prompt-chip:focus-visible,
 .view-toggle button:focus-visible,
 .sql-action:focus-visible,
-.sql-panel-toggle-collapsed:focus-visible,
+.query-trigger:focus-visible,
 .schema-link:focus-visible,
 .modal-close:focus-visible {
   outline: 2px solid var(--prompt);
@@ -599,18 +590,12 @@ body {
   .topbar { padding: 14px 20px; }
   .transcript { padding: 20px 16px 12px; }
   .input-bar { padding: 12px 16px 16px; }
-  .card, .card:has(.sql-panel-inline:not(.collapsed)) { max-width: 100%; }
-  .card-body { flex-direction: column; }
-  .card-main { width: 100%; }
-  .sql-panel-inline { flex-basis: auto; width: 100%; max-width: 100%; min-width: 0; max-height: 260px; }
-  .sql-panel-inline.collapsed { flex-basis: auto; width: 100%; max-height: 32px; }
-  .sql-panel-inline.collapsed .sql-panel-toggle-collapsed { flex-direction: row; padding: 6px 0; }
-  .sql-panel-inline.collapsed .sql-strip-label { writing-mode: horizontal-tb; transform: none; }
+  .card { max-width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .dots::after { animation: none; content: "..."; }
-  .sql-panel-inline { transition: none; }
+  .sql-collapse { transition: none; }
   .dot { animation: none; }
   .line, .card { animation: none; }
   .transcript { scroll-behavior: auto; }

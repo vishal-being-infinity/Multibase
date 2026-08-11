@@ -212,13 +212,17 @@ function ResultsView({ rows }) {
   );
 }
 
-function SqlPanel({ sql }) {
-  const [open, setOpen] = useState(false); // collapsed by default
+// Query lives in its own local accordion below the chart/table - it's a
+// separate sibling in normal block flow, so opening/closing it only pushes
+// content further down the page. It never touches card-main's box (width,
+// height, or position), so the chart/table can't resize or shift.
+function ResultCard({ msg }) {
+  const [sqlOpen, setSqlOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(sql);
+      await navigator.clipboard.writeText(msg.sql);
       setCopied(true);
       setTimeout(() => setCopied(false), 1400);
     } catch {
@@ -226,40 +230,21 @@ function SqlPanel({ sql }) {
     }
   }
 
-  // Always the same node, only the "collapsed" class ever toggles - this is
-  // what lets the width transition run smoothly instead of jumping.
-  return (
-    <div className={`sql-panel-inline${open ? "" : " collapsed"}`}>
-      {open ? (
-        <>
-          <div className="sql-panel-head">
-            <span className="sql-panel-label">query</span>
-            <div className="sql-panel-actions">
-              <button className={`sql-action${copied ? " copied" : ""}`} onClick={handleCopy}>
-                {copied ? "copied" : "copy"}
-              </button>
-              <button className="sql-action" onClick={() => setOpen(false)} aria-label="collapse query" aria-expanded="true">
-                &raquo;
-              </button>
-            </div>
-          </div>
-          <pre className="sql">{sql}</pre>
-        </>
-      ) : (
-        <button className="sql-panel-toggle-collapsed" onClick={() => setOpen(true)} aria-label="show query" aria-expanded="false">
-          <span className="sql-strip-label">query</span>
-        </button>
-      )}
-    </div>
-  );
-}
-
-function ResultCard({ msg }) {
   return (
     <div className={`card card-${msg.status}`}>
       <div className="card-head">
         <Verdict status={msg.status} />
         {msg.ms != null && <span className="ms">{msg.ms}ms</span>}
+        {msg.sql && (
+          <button
+            type="button"
+            className={`query-trigger${sqlOpen ? " active" : ""}`}
+            onClick={() => setSqlOpen((o) => !o)}
+            aria-expanded={sqlOpen}
+          >
+            query
+          </button>
+        )}
       </div>
 
       {msg.text && <p className="card-text">{msg.text}</p>}
@@ -269,7 +254,20 @@ function ResultCard({ msg }) {
           <div className="card-main">
             <ResultsView rows={msg.rows} />
           </div>
-          {msg.sql && <SqlPanel sql={msg.sql} />}
+        </div>
+      )}
+
+      {msg.sql && (
+        <div className={`sql-collapse${sqlOpen ? " open" : ""}`}>
+          <div className="sql-collapse-inner">
+            <div className="sql-panel-head">
+              <span className="sql-panel-label">query</span>
+              <button className={`sql-action${copied ? " copied" : ""}`} onClick={handleCopy}>
+                {copied ? "copied" : "copy"}
+              </button>
+            </div>
+            <pre className="sql">{msg.sql}</pre>
+          </div>
         </div>
       )}
     </div>
@@ -418,8 +416,9 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-left">
           <span className="dot" />
-          <span className="brand">nl2sql</span>
-          <span className="brand-sub">competitive programming judge</span>
+          <span className="brand">MultiBase</span>
+          <span className="brand-sub">Query data in plain English → LLM converts it to SQL, resolves ambiguity, and visualizes results as tables, charts, or summaries.
+</span>
         </div>
         <div className="topbar-right">
           <button type="button" className="schema-link" onClick={openSchema}>

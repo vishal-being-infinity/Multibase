@@ -16,6 +16,12 @@ const SUGGESTIONS = [
 ];
 
 function colorAt(i) { return PALETTE[i % PALETTE.length]; }
+function humanize(col) { return String(col).replace(/_/g, " "); }
+function fmtNum(n) {
+  if (typeof n !== "number" || Number.isNaN(n)) return n;
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toLocaleString();
+}
 
 function Verdict({ status }) {
   const map = {
@@ -29,27 +35,55 @@ function Verdict({ status }) {
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
+  const p = payload[0];
+  const key = p.dataKey || p.name;
   return (
     <div className="chart-tooltip">
-      <div className="chart-tooltip-label">{label ?? payload[0].name}</div>
-      <div className="chart-tooltip-value">{payload[0].value}</div>
+      <div className="chart-tooltip-label">{label ?? p.name}</div>
+      <div className="chart-tooltip-value">
+        {fmtNum(p.value)}
+        {key && <span className="chart-tooltip-key">{humanize(key)}</span>}
+      </div>
     </div>
   );
 }
 
-// color swatch + label + value per data point; caps at LEGEND_LIMIT with a "+N more" note
-function ChartLegend({ rows, labelCol, numericCol }) {
+// title + row/total/average context sitting above the chart itself
+function ChartHeader({ rows, labelCol, numericCol, type }) {
+  const total = rows.reduce((sum, r) => sum + (Number(r[numericCol]) || 0), 0);
+  const avg = rows.length ? total / rows.length : 0;
+  return (
+    <div className="chart-header">
+      <span className="chart-title">{humanize(numericCol)} by {humanize(labelCol)}</span>
+      <span className="chart-stats">
+        {rows.length} {rows.length === 1 ? "row" : "rows"}
+        {type !== "line" && <> · total {fmtNum(total)}</>}
+        {" "}· avg {fmtNum(avg)}
+      </span>
+    </div>
+  );
+}
+
+// color swatch + label + value + share-of-total per data point; caps at LEGEND_LIMIT with a "+N more" note
+function ChartLegend({ rows, labelCol, numericCol, total }) {
   const shown = rows.slice(0, LEGEND_LIMIT);
   const remaining = rows.length - shown.length;
   return (
     <div className="chart-legend">
-      {shown.map((r, i) => (
-        <div className="legend-item" key={i}>
-          <span className="legend-swatch" style={{ background: colorAt(i) }} />
-          <span className="legend-label">{String(r[labelCol])}</span>
-          <span className="legend-value">{r[numericCol]}</span>
-        </div>
-      ))}
+      {shown.map((r, i) => {
+        const value = Number(r[numericCol]) || 0;
+        const pct = total ? Math.round((value / total) * 100) : null;
+        return (
+          <div className="legend-item" key={i}>
+            <span className="legend-swatch" style={{ background: colorAt(i) }} />
+            <span className="legend-label">{String(r[labelCol])}</span>
+            <span className="legend-value">
+              {fmtNum(value)}
+              {pct != null && <span className="legend-pct">{pct}%</span>}
+            </span>
+          </div>
+        );
+      })}
       {remaining > 0 && <div className="legend-more">+{remaining} more</div>}
     </div>
   );
@@ -148,12 +182,13 @@ function ChartView({ type, rows, labelCol, numericCol }) {
 
 function ResultsView({ rows }) {
   const detected = rows?.length ? decideView(rows) : { type: "table" };
-  const [view, setView] = useState(detected.type); // chart-vs-table toggle state, kept regardless of which view renders
+  const [view, setView] = useState("table"); // chart-vs-table toggle state - defaults to table regardless of the detected chart type
   const { labelCol, numericCol } = detected;
 
   if (!rows?.length) return <p className="empty">no rows returned</p>;
 
   const showToggle = detected.type !== "table";
+  const total = numericCol ? rows.reduce((sum, r) => sum + (Number(r[numericCol]) || 0), 0) : null;
 
   return (
     <div>
@@ -168,8 +203,9 @@ function ResultsView({ rows }) {
         <TableView rows={rows} />
       ) : (
         <>
+          <ChartHeader rows={rows} labelCol={labelCol} numericCol={numericCol} type={view} />
           <ChartView type={view} rows={rows} labelCol={labelCol} numericCol={numericCol} />
-          <ChartLegend rows={rows} labelCol={labelCol} numericCol={numericCol} />
+          <ChartLegend rows={rows} labelCol={labelCol} numericCol={numericCol} total={total} />
         </>
       )}
     </div>
@@ -177,7 +213,7 @@ function ResultsView({ rows }) {
 }
 
 function SqlPanel({ sql }) {
-  const [open, setOpen] = useState(true); // open by default
+  const [open, setOpen] = useState(false); // collapsed by default
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -240,11 +276,76 @@ function ResultCard({ msg }) {
   );
 }
 
+function SchemaModal({ open, onClose, data, loading, error, onRetry }) {
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal schema-modal" role="dialog" aria-modal="true" aria-label="database schema" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <h2 className="modal-title">database schema</h2>
+            <p className="modal-sub">tables available to ask questions about</p>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="close schema">&times;</button>
+        </div>
+
+        <div className="modal-body">
+          {loading && <p className="schema-status">loading schema&hellip;</p>}
+
+          {error && (
+            <div className="schema-status schema-error">
+              <p>{error}</p>
+              <button className="sql-action" onClick={onRetry}>retry</button>
+            </div>
+          )}
+
+          {data && (
+            <div className="schema-grid">
+              {data.tables.map((t) => (
+                <div className="schema-table" key={t.name}>
+                  <div className="schema-table-head">
+                    <span className="schema-table-name">{t.name}</span>
+                    <span className="schema-table-count">{t.columns.length} cols</span>
+                  </div>
+                  <ul className="schema-columns">
+                    {t.columns.map((c) => (
+                      <li key={c.name} className="schema-column">
+                        <span className="schema-col-name">{c.name}</span>
+                        {c.pk && <span className="schema-badge schema-badge-pk">PK</span>}
+                        {c.ref && <span className="schema-badge schema-badge-fk">&rarr; {c.ref}</span>}
+                        {c.note && <span className="schema-col-note">{c.note}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState([]);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [schemaOpen, setSchemaOpen] = useState(false);
+  const [schema, setSchema] = useState(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaError, setSchemaError] = useState(null);
   const transcriptRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -293,6 +394,25 @@ export default function App() {
     submitQuestion(question);
   }
 
+  async function loadSchema() {
+    setSchemaLoading(true);
+    setSchemaError(null);
+    try {
+      const res = await fetch(`${API_URL}/schema`);
+      if (!res.ok) throw new Error(`request failed (${res.status})`);
+      setSchema(await res.json());
+    } catch (err) {
+      setSchemaError(err.message || "failed to load schema");
+    } finally {
+      setSchemaLoading(false);
+    }
+  }
+
+  function openSchema() {
+    setSchemaOpen(true);
+    if (!schema && !schemaLoading) loadSchema();
+  }
+
   return (
     <div className="app">
       <header className="topbar">
@@ -301,28 +421,17 @@ export default function App() {
           <span className="brand">nl2sql</span>
           <span className="brand-sub">competitive programming judge</span>
         </div>
-        <span className="topbar-right">postgres · claude</span>
+        <div className="topbar-right">
+          <button type="button" className="schema-link" onClick={openSchema}>
+            <span className="schema-link-icon">&#9638;</span> schema
+          </button>
+          <span className="topbar-sep">&middot;</span>
+          <span className="topbar-meta">postgres · claude</span>
+        </div>
       </header>
 
       <main className="transcript" ref={transcriptRef}>
-        {messages.length === 0 && (
-          <div className="empty-state">
-            <p className="empty-title">no submissions yet</p>
-            <div className="suggestions">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s.text}
-                  type="button"
-                  className="suggestion-chip"
-                  onClick={() => submitQuestion(s.text)}
-                >
-                  <span>{s.text}</span>
-                  <span className="suggestion-hint">{s.hint}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {messages.length === 0 && <p className="empty-title">no submissions yet &mdash; try a prompt below</p>}
 
         {messages.map((m, i) =>
           m.role === "user" ? (
@@ -343,6 +452,25 @@ export default function App() {
         )}
       </main>
 
+      <div className="quick-prompts">
+        <div className="quick-prompts-inner">
+          <span className="quick-prompts-label">try</span>
+          <div className="quick-prompts-row">
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s.text}
+                type="button"
+                className="quick-prompt-chip"
+                onClick={() => submitQuestion(s.text)}
+                disabled={loading}
+              >
+                {s.text}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <form onSubmit={handleAsk} className="input-bar">
         <span className="prompt-glyph">&gt;</span>
         <input
@@ -355,6 +483,15 @@ export default function App() {
         />
         <button type="submit" disabled={loading || !question.trim()}>submit</button>
       </form>
+
+      <SchemaModal
+        open={schemaOpen}
+        onClose={() => setSchemaOpen(false)}
+        data={schema}
+        loading={schemaLoading}
+        error={schemaError}
+        onRetry={loadSchema}
+      />
     </div>
   );
 }

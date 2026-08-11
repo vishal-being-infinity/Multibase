@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: nl2sql_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nl2sql_user
+      POSTGRES_PASSWORD: nl2sql_pass
+      POSTGRES_DB: nl2sql_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

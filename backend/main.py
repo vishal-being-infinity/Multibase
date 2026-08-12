@@ -13,6 +13,8 @@ from anthropic import APIStatusError
 from llm.factory import get_llm_providers
 from mongo_db import run_find, run_aggregate, UnsafeMongoQueryError
 from mongo_schema_context import MONGO_SCHEMA_CONTEXT
+from neo4j_db import run_cypher, UnsafeCypherError
+from neo4j_schema_context import NEO4J_SCHEMA_CONTEXT
 
 from fastapi.middleware.cors import CORSMiddleware
 from db import run_query, UnsafeQueryError
@@ -69,7 +71,7 @@ def ask(req: AskRequest):
     last_error = None
     for provider in providers:
         try:
-            result = provider.process_question(turns, SCHEMA_CONTEXT, MONGO_SCHEMA_CONTEXT)
+            result = provider.process_question(turns, SCHEMA_CONTEXT, MONGO_SCHEMA_CONTEXT, NEO4J_SCHEMA_CONTEXT)
             break
         except Exception as e:
             last_error = e
@@ -95,10 +97,13 @@ def ask(req: AskRequest):
                 rows = run_aggregate(mq["collection"], mq.get("pipeline", []))
             return {"status": "ok", "source": "mongo", "sql": f"db.{mq['collection']}.{operation}(...)",
                     "row_count": len(rows), "rows": rows}
+        elif result["target_db"] == "neo4j":
+            rows = run_cypher(result["cypher"])
+            return {"status": "ok", "source": "neo4j", "sql": result["cypher"], "row_count": len(rows), "rows": rows}
 
         raise HTTPException(status_code=500, detail=f"unknown target_db: {result['target_db']}")
 
-    except (UnsafeQueryError, UnsafeMongoQueryError) as e:
+    except (UnsafeQueryError, UnsafeMongoQueryError, UnsafeCypherError) as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"query failed: {e}")

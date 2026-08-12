@@ -721,7 +721,7 @@ body {
 }
 .source-postgres { background: rgba(76, 139, 245, 0.12); color: var(--prompt); }
 .source-mongo { background: rgba(63, 185, 80, 0.12); color: var(--ac); }
-.source-neo4j { background: rgba(212, 167, 44, 0.12); color: var(--pending); }
+.source-neo4j { background: rgba(248, 81, 73, 0.12); color: var(--error); }
 .source-default { background: var(--bg-panel-2); color: var(--text-dim); }
 
 /* ---------- mongo document view ---------- */

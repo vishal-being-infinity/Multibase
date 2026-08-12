@@ -7,3 +7,4 @@ python-dotenv
 faker
 google-genai
 pymongo
+neo4j

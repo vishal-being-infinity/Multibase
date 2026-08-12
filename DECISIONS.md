@@ -203,3 +203,50 @@ Spent real debugging time because a shown "fix" wasn't actually saved to
 main.py on disk - the container kept running the old code. Now standard
 practice after any edit: grep the change on the host file AND inside the
 container before retesting, rather than assuming a save took effect.
+
+## Neo4j via AuraDB (managed), same reasoning as Mongo/Postgres
+Consistent with the earlier managed-over-self-hosted decisions - one
+connection string, works locally and in production, no stateful
+container to host ourselves at deploy time.
+
+## Graph model: thin Student/Problem nodes, relationships carry the value
+Nodes only hold {id, name} or {id, title} - the real data stays in
+Postgres, linked by the same id convention used for Mongo. The actual
+payload is in the relationships: MENTORS, FOLLOWS, RIVAL_OF (students),
+SIMILAR_TO with shared_tags (problems). This is what makes graph
+questions (mentorship chains, "who's connected to whom") answerable in
+Cypher in ways that would need recursive/self-joins in SQL.
+
+## Recurring pattern: env var changes and requirements.txt changes both need a container recreate/rebuild
+Hit this exact class of bug three times now across three different
+databases (readonly Postgres role, MONGO_READONLY_URL, NEO4J_URI/neo4j
+package) - editing .env or requirements.txt has zero effect on an
+already-running container. Standard fix going forward:
+- .env changes -> `docker compose up -d --force-recreate <service>`
+- requirements.txt changes -> `docker compose up -d --build <service>`
+Worth checking this FIRST whenever a value seems "correct but not
+working" or an import fails right after adding a package.
+
+## Neo4j safety: app-level Cypher validation only, no DB-level read-only role
+Checked Aura's console directly - Free tier doesn't support custom
+role/user creation (no Viewer role option), unlike Postgres (read-only
+role) and Mongo (read-only Atlas user), which both got genuine DB-level
+enforcement in addition to app-level checks.
+Neo4j's safety here is single-layer: a regex check in neo4j_db.py blocks
+CREATE/MERGE/DELETE/SET/REMOVE/DROP/LOAD CSV appearing anywhere in the
+query text (Cypher write clauses can appear mid-query, unlike SQL where
+a leading SELECT check is closer to sufficient).
+Known gap, not hidden: if this app-level check has a bug, there's
+currently no second layer to catch it, unlike the other two databases.
+Worth revisiting if this project moves to Aura Professional (which does
+support read-only roles) before real deployment.
+Verified: write clauses (DETACH DELETE) correctly rejected; normal reads
+return correct data.
+
+## Neo4j wired into routing - all three databases live
+Fourth tool (query_neo4j) added alongside query_postgres/query_mongo/
+ask_clarification, same forced-tool-use pattern. Verified against known-
+correct data from earlier direct checkpoint tests: "who does Jordan
+Hines mentor" correctly returned Michael Smith and Jeffrey White via
+neo4j; "problems similar to problem 35" correctly returned the same
+shared-tag matches.

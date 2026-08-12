@@ -13,6 +13,7 @@ import time
 import psycopg
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from neo4j import GraphDatabase
 
 load_dotenv()
 
@@ -46,6 +47,17 @@ def mongo_needs_seed():
     db = client["multibase"]
     return db.editorials.count_documents({}) == 0
 
+def neo4j_needs_seed():
+    driver = GraphDatabase.driver(
+        os.getenv("NEO4J_URI"),
+        auth=(os.getenv("NEO4J_USER"), os.getenv("NEO4J_PASSWORD")),
+    )
+    with driver.session() as session:
+        result = session.run("MATCH (n:Student) RETURN count(n) AS count")
+        count = result.single()["count"]
+    driver.close()
+    return count == 0
+
 
 def main():
     wait_for_postgres()
@@ -62,6 +74,11 @@ def main():
     else:
         print("mongo already has data - skipping")
 
+    if neo4j_needs_seed():
+        print("neo4j is empty - seeding...")
+        subprocess.run([sys.executable, "/app/scripts/seed_neo4j.py"], check=True)
+    else:
+        print("neo4j already has data - skipping")
 
 if __name__ == "__main__":
     main()

@@ -35,9 +35,10 @@ handles it.
 - `GET /health` - confirms API and DB connectivity
 - `POST /query` - runs raw SQL directly (scaffold only, no LLM - see DECISIONS.md)
 - `POST /ask` - takes a question + optional conversation history. Routes
-  to Postgres or MongoDB automatically based on the question (one LLM
-  call picks the database and generates the matching query), or returns
-  a clarifying question if ambiguous.
+  to Postgres, MongoDB, or Neo4j automatically based on the question
+  (one LLM call picks the database and generates the matching query:
+  SQL, a Mongo filter/pipeline, or Cypher), or returns a clarifying
+  question if ambiguous.
 
 LLM provider is configurable via `LLM_PROVIDER` in `.env` (currently `claude`;
 built behind a provider interface so Gemini can be added later without

@@ -20,6 +20,7 @@ class LLMResponse(TypedDict):
     sql: str | None            # set when target_db is "postgres"
     mongo_query: dict | None   # set when target_db is "mongo" - {collection, operation, filter/pipeline, limit}
     clarifying_question: str | None
+    cypher: str | None         # set when target_db is "neo4j"
 
 
 class LLMProvider(ABC):

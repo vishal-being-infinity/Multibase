@@ -54,7 +54,7 @@ trace back to a wiped volume.
 Fixed by moving both schema.sql and the role creation into db/init/*.sql,
 which Postgres runs automatically on first boot of a fresh volume. Schema
 and permissions are now self-healing; only seed data needs a manual rerun
-after a volume wipe (`python3 scripts/seed.py`).
+after a volume wipe (`python3 scripts/seed_progress.py`).
 
 ## Renaming the project folder requires recreating the venv
 Python virtual environments bake in absolute paths at creation time.

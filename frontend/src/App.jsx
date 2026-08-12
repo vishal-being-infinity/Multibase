@@ -98,6 +98,17 @@ function Verdict({ status }) {
   return <span className={`verdict ${v.cls}`}>{v.label}</span>;
 }
 
+function SourceTag({ source }) {
+  if (!source) return null;
+  const map = {
+    postgres: { label: "postgres", cls: "source-postgres" },
+    mongo: { label: "mongodb", cls: "source-mongo" },
+    neo4j: { label: "neo4j", cls: "source-neo4j" },
+  };
+  const s = map[source] || { label: source, cls: "source-default" };
+  return <span className={`source-tag ${s.cls}`}>{s.label}</span>;
+}
+
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const p = payload[0];
@@ -248,6 +259,78 @@ function ChartView({ type, rows, labelCol, numericCol }) {
   );
 }
 
+// renders mongo documents as cards: top-level scalar fields as key/value,
+// nested objects as a labeled sub-section, nested arrays as a mini scrollable list
+function DocumentView({ rows }) {
+  return (
+    <div className="doc-list">
+      {rows.map((doc, i) => <DocumentCard key={i} doc={doc} />)}
+    </div>
+  );
+}
+
+function DocumentCard({ doc }) {
+  const entries = Object.entries(doc).filter(([k]) => k !== "_id");
+  return (
+    <div className="doc-card">
+      {entries.map(([key, value]) => <DocField key={key} label={key} value={value} />)}
+    </div>
+  );
+}
+
+function DocField({ label, value }) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return (
+        <div className="doc-field">
+          <span className="doc-field-label">{humanize(label)}</span>
+          <span className="doc-empty">none</span>
+        </div>
+      );
+    }
+    return (
+      <div className="doc-field doc-field-array">
+        <span className="doc-field-label">{humanize(label)} <span className="doc-field-count">{value.length}</span></span>
+        <div className="doc-sublist">
+          {value.map((item, i) => (
+            <div className="doc-subitem" key={i}>
+              {typeof item === "object" && item !== null
+                ? Object.entries(item).map(([k, v]) => (
+                    <div className="doc-subitem-row" key={k}>
+                      <span className="doc-subitem-key">{humanize(k)}</span>
+                      <span className="doc-subitem-val">{String(v)}</span>
+                    </div>
+                  ))
+                : <span className="doc-subitem-val">{String(item)}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (value !== null && typeof value === "object") {
+    return (
+      <div className="doc-field doc-field-nested">
+        <span className="doc-field-label">{humanize(label)}</span>
+        <div className="doc-nested">
+          {Object.entries(value).map(([k, v]) => (
+            <div className="doc-nested-row" key={k}>
+              <span className="doc-nested-key">{humanize(k)}</span>
+              <span className="doc-nested-val">{String(v)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="doc-field">
+      <span className="doc-field-label">{humanize(label)}</span>
+      <span className="doc-field-val">{String(value)}</span>
+    </div>
+  );
+}
+
 function ResultsView({ rows }) {
   const detected = rows?.length ? decideView(rows) : { type: "table" };
   const [view, setView] = useState("table"); // chart-vs-table toggle state - defaults to table regardless of the detected chart type
@@ -302,6 +385,7 @@ function ResultCard({ msg }) {
     <div className={`card card-${msg.status}`}>
       <div className="card-head">
         <Verdict status={msg.status} />
+        <SourceTag source={msg.source} />
         {msg.ms != null && <span className="ms">{msg.ms}ms</span>}
         {msg.sql && (
           <button
@@ -320,7 +404,7 @@ function ResultCard({ msg }) {
       {msg.rows && (
         <div className="card-body">
           <div className="card-main">
-            <ResultsView rows={msg.rows} />
+            {msg.source === "mongo" ? <DocumentView rows={msg.rows} /> : <ResultsView rows={msg.rows} />}
           </div>
         </div>
       )}
@@ -519,7 +603,7 @@ export default function App() {
         setMessages((prev) => [...prev, { role: "assistant", status: "ambiguous", text: data.clarifying_question, ms: elapsedMs }]);
       } else if (data.status === "ok") {
         setHistory([]);
-        setMessages((prev) => [...prev, { role: "assistant", status: "ok", sql: data.sql, rows: data.rows, ms: elapsedMs }]);
+        setMessages((prev) => [...prev, { role: "assistant", status: "ok", source: data.source, sql: data.sql, rows: data.rows, ms: elapsedMs }]);
       } else {
         setMessages((prev) => [...prev, { role: "assistant", status: "error", text: data.detail || "query failed", ms: elapsedMs }]);
       }

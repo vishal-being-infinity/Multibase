@@ -708,3 +708,77 @@ body {
   .transcript { scroll-behavior: auto; }
   .modal-backdrop, .modal { animation: none; }
 }
+
+/* ---------- source tag ---------- */
+.source-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  text-transform: lowercase;
+}
+.source-postgres { background: rgba(76, 139, 245, 0.12); color: var(--prompt); }
+.source-mongo { background: rgba(63, 185, 80, 0.12); color: var(--ac); }
+.source-neo4j { background: rgba(212, 167, 44, 0.12); color: var(--pending); }
+.source-default { background: var(--bg-panel-2); color: var(--text-dim); }
+
+/* ---------- mongo document view ---------- */
+.doc-list { display: flex; flex-direction: column; gap: 10px; }
+
+.doc-card {
+  background: var(--bg-well);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.doc-field { display: flex; flex-direction: column; gap: 2px; }
+.doc-field-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.doc-field-count { margin-left: 6px; color: var(--text-faint); font-size: 9px; }
+.doc-field-val { font-size: 13px; color: var(--text-primary); line-height: 1.5; }
+.doc-empty { font-size: 12px; color: var(--text-faint); font-style: italic; }
+
+.doc-nested {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.doc-nested-row { display: flex; gap: 8px; font-size: 12px; }
+.doc-nested-key { font-family: var(--font-mono); color: var(--text-dim); min-width: 80px; flex-shrink: 0; }
+.doc-nested-val { color: var(--text-primary); }
+
+.doc-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.doc-subitem {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.doc-subitem-row { display: flex; gap: 8px; font-size: 12px; }
+.doc-subitem-key { font-family: var(--font-mono); color: var(--text-dim); min-width: 80px; flex-shrink: 0; }
+.doc-subitem-val { color: var(--text-primary); font-size: 12.5px; }

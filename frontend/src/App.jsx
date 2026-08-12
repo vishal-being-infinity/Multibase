@@ -19,10 +19,17 @@ const CHART_THEME = {
   light: { grid: "#e4e7ec", axisLine: "#d7dbe3", tick: "#6b7280", line: "#1f6feb", cursor: "rgba(31, 111, 235, 0.07)" },
 };
 
+// const SUGGESTIONS = [
+//   { text: "which students solved the most hard problems?", hint: "aggregate" },
+//   { text: "average submission runtime by language", hint: "compare" },
+//   { text: "submissions per day this month", hint: "trend" },
+// ];
+
 const SUGGESTIONS = [
-  { text: "which students solved the most hard problems?", hint: "aggregate" },
-  { text: "average submission runtime by language", hint: "compare" },
-  { text: "submissions per day this month", hint: "trend" },
+  { text: "submissions per day this month", hint: "trend", source: "postgres" },
+  { text: "how many contests has each platform hosted?", hint: "breakdown", source: "postgres" },
+  { text: "what approach does the editorial for problem 35 use?", hint: "editorial", source: "mongo" },
+  { text: "who does Jordan Hines mentor?", hint: "graph", source: "neo4j" },
 ];
 
 const ThemeContext = createContext("dark");
@@ -84,6 +91,15 @@ function TrashIcon() {
   return (
     <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
+function Table2Icon() {
+  return (
+    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" />
+      <path d="M4 10h16M10 10v10" />
     </svg>
   );
 }
@@ -426,7 +442,36 @@ function ResultCard({ msg }) {
   );
 }
 
+
+
+const SCHEMA_TABS = [
+  { key: "postgres", label: "postgres", desc: "Structured relational data — students, contests, problems, and submissions, with joins and aggregates." },
+  { key: "mongo", label: "mongodb", desc: "Flexible documents — editorial writeups, full problem statements, and submitted code." },
+  { key: "neo4j", label: "neo4j", desc: "Relationship graph — mentorship, follows, rivalries between students, and problem similarity." },
+];
+
+// sums seed_count across a tab's tables/collections/nodes+relationships into one readable line
+function schemaSummary(tab, data) {
+  if (!data) return null;
+  if (tab === "postgres") {
+    const total = data.postgres.tables.reduce((sum, t) => sum + (t.seed_count ?? 0), 0);
+    return `${total.toLocaleString()} rows across ${data.postgres.tables.length} tables`;
+  }
+  if (tab === "mongo") {
+    const total = data.mongo.collections.reduce((sum, c) => sum + (c.seed_count ?? 0), 0);
+    return `${total.toLocaleString()} documents across ${data.mongo.collections.length} collections`;
+  }
+  if (tab === "neo4j") {
+    const nodeTotal = data.neo4j.nodes.reduce((sum, n) => sum + (n.seed_count ?? 0), 0);
+    const relTotal = data.neo4j.relationships.reduce((sum, r) => sum + (r.seed_count ?? 0), 0);
+    return `${nodeTotal.toLocaleString()} nodes, ${relTotal.toLocaleString()} relationships`;
+  }
+  return null;
+}
+
 function SchemaModal({ open, onClose, data, loading, error, onRetry }) {
+  const [tab, setTab] = useState("postgres");
+
   useEffect(() => {
     if (!open) return;
     function onKey(e) {
@@ -441,13 +486,34 @@ function SchemaModal({ open, onClose, data, loading, error, onRetry }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal schema-modal" role="dialog" aria-modal="true" aria-label="database schema" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
+         <div className="modal-head">
           <div>
             <h2 className="modal-title">database schema</h2>
-            <p className="modal-sub">tables available to ask questions about</p>
+            <p className="modal-sub">what's queryable in each database</p>
           </div>
           <button className="modal-close" onClick={onClose} aria-label="close schema">&times;</button>
         </div>
+
+        {data && (
+          <>
+            <div className="schema-tabs">
+              {SCHEMA_TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`schema-tab source-tag source-${t.key}${tab === t.key ? " active" : ""}`}
+                  onClick={() => setTab(t.key)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="schema-tab-info">
+              <p className="schema-tab-desc">{SCHEMA_TABS.find((t) => t.key === tab)?.desc}</p>
+              <span className="schema-tab-total">{schemaSummary(tab, data)}</span>
+            </div>
+          </>
+        )}
 
         <div className="modal-body">
           {loading && <p className="schema-status">loading schema&hellip;</p>}
@@ -459,13 +525,13 @@ function SchemaModal({ open, onClose, data, loading, error, onRetry }) {
             </div>
           )}
 
-          {data && (
+          {data && tab === "postgres" && (
             <div className="schema-grid">
-              {data.tables.map((t) => (
+              {data.postgres.tables.map((t) => (
                 <div className="schema-table" key={t.name}>
                   <div className="schema-table-head">
                     <span className="schema-table-name">{t.name}</span>
-                    <span className="schema-table-count">{t.columns.length} cols</span>
+                    <span className="schema-table-count">{t.seed_count != null ? `${t.seed_count} rows` : `${t.columns.length} cols`}</span>
                   </div>
                   <ul className="schema-columns">
                     {t.columns.map((c) => (
@@ -479,6 +545,60 @@ function SchemaModal({ open, onClose, data, loading, error, onRetry }) {
                   </ul>
                 </div>
               ))}
+            </div>
+          )}
+
+          {data && tab === "mongo" && (
+            <div className="schema-grid">
+              {data.mongo.collections.map((c) => (
+                <div className="schema-table" key={c.name}>
+                  <div className="schema-table-head">
+                    <span className="schema-table-name">{c.name}</span>
+                    <span className="schema-table-count">{c.seed_count != null ? `${c.seed_count} docs` : `${c.fields.length} fields`}</span>
+                  </div>
+                  <ul className="schema-columns">
+                    {c.fields.map((f) => (
+                      <li key={f.name} className="schema-column">
+                        <span className="schema-col-name">{f.name}</span>
+                        {f.note && <span className="schema-col-note">{f.note}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {data && tab === "neo4j" && (
+            <div className="schema-grid">
+              <div className="schema-table">
+                <div className="schema-table-head">
+                  <span className="schema-table-name">nodes</span>
+                </div>
+                <ul className="schema-columns">
+                  {data.neo4j.nodes.map((n) => (
+                    <li key={n.label} className="schema-column">
+                      <span className="schema-col-name">{n.label}</span>
+                      <span className="schema-col-note">{n.properties.join(", ")}</span>
+                      {n.seed_count != null && <span className="schema-badge schema-badge-fk">{n.seed_count}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="schema-table">
+                <div className="schema-table-head">
+                  <span className="schema-table-name">relationships</span>
+                </div>
+                <ul className="schema-columns">
+                  {data.neo4j.relationships.map((r) => (
+                    <li key={r.type} className="schema-column">
+                      <span className="schema-col-name">{r.type}</span>
+                      <span className="schema-col-note">{r.note}</span>
+                      {r.seed_count != null && <span className="schema-badge schema-badge-fk">{r.seed_count}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           )}
         </div>
@@ -521,7 +641,6 @@ function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onCancel 
     </div>
   );
 }
-
 export default function App() {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState([]);
@@ -642,43 +761,52 @@ export default function App() {
   return (
     <ThemeContext.Provider value={theme}>
     <div className="app">
-      <header className="topbar">
-        <div className="topbar-left">
-          <span className="dot" />
+    <header className="topbar">
+      <div className="topbar-left">
+        <span className="dot" />
+        <div className="topbar-titles">
           <span className="brand">MultiBase</span>
-          <span className="brand-sub">Query data in plain English → LLM converts it to SQL, resolves ambiguity, and visualizes results as tables, charts, or summaries.
-</span>
+          <span className="brand-sub">Query data in plain English — LLM converts it to SQL, resolves ambiguity, and visualizes results as tables, charts, or summaries.</span>
         </div>
-        <div className="topbar-right">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={theme === "light"}
-            className={`theme-toggle${theme === "light" ? " is-light" : ""}`}
-            onClick={toggleTheme}
-            title={`switch to ${theme === "dark" ? "light" : "dark"} mode`}
-            aria-label="toggle color theme"
-          >
-            <span className="theme-toggle-knob">{theme === "light" ? <SunIcon /> : <MoonIcon />}</span>
-          </button>
-          <span className="topbar-sep">&middot;</span>
-          <button
-            type="button"
-            className="schema-link"
-            onClick={() => setConfirmClearOpen(true)}
-            disabled={loading || messages.length === 0}
-            title="clear saved chat history"
-          >
-            <TrashIcon /> clear history
-          </button>
-          <span className="topbar-sep">&middot;</span>
-          <button type="button" className="schema-link" onClick={openSchema}>
-            <span className="schema-link-icon">&#9638;</span> view schema 
-          </button>
-          <span className="topbar-sep">&middot;</span>
-          <span className="topbar-meta">postgres · claude</span>
-        </div>
-      </header>
+      </div>
+
+      <div className="topbar-right">
+        <span className="db-legend">
+          <span className="db-legend-item db-legend-postgres"><span className="db-legend-swatch" />postgres</span>
+          <span className="db-legend-item db-legend-mongo"><span className="db-legend-swatch" />mongodb</span>
+          <span className="db-legend-item db-legend-neo4j"><span className="db-legend-swatch" />neo4j</span>
+        </span>
+
+        <span className="topbar-divider" />
+
+        <button type="button" className="icon-btn" onClick={openSchema} title="view schema">
+          <Table2Icon /> view schema
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={() => setConfirmClearOpen(true)}
+          disabled={loading || messages.length === 0}
+          title="clear saved chat history"
+        >
+          <TrashIcon /> clear history
+        </button>
+
+        <span className="topbar-divider" />
+
+        <button
+          type="button"
+          role="switch"
+          aria-checked={theme === "light"}
+          className={`theme-toggle${theme === "light" ? " is-light" : ""}`}
+          onClick={toggleTheme}
+          title={`switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          aria-label="toggle color theme"
+        >
+          <span className="theme-toggle-knob">{theme === "light" ? <SunIcon /> : <MoonIcon />}</span>
+        </button>
+      </div>
+    </header>
 
       <main className="transcript" ref={transcriptRef}>
         {messages.length === 0 && <p className="empty-title">no submissions yet &mdash; try a prompt below</p>}
@@ -707,11 +835,12 @@ export default function App() {
           <div className="quick-prompts-inner">
             <span className="quick-prompts-label">try</span>
             <div className="quick-prompts-row">
+              
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.text}
                   type="button"
-                  className="quick-prompt-chip"
+                  className={`quick-prompt-chip quick-prompt-${s.source}`}
                   onClick={() => submitQuestion(s.text)}
                   disabled={loading}
                 >

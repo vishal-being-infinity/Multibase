@@ -1,29 +1,43 @@
 # MULTIBASE — Competitive Programming Analytics
 
 Ask questions in plain English about students, contests, problems, and submissions.
-Claude/Gemini (configurable) converts your question to SQL, asks for clarification
-if it's ambiguous, and returns results as a table, chart, or summary.
-
-Currently Postgres-backed; MongoDB and Neo4j are planned next (see DECISIONS.md).
+Claude/Gemini (configurable, with automatic fallback) converts your question into
+the right query for the right database, asks for clarification if it's ambiguous,
+and returns results as a table, chart, document view, or summary.
 
 ## Architecture
 
 See `ARCHITECTURE.md` for the full diagram and data flow.
 
+## Databases
+
+- **Postgres** - students, contests, problems, submissions (structured, relational)
+- **MongoDB** (Atlas) - editorials + discussion threads, full problem statements,
+  submitted code (flexible/nested content Postgres doesn't hold)
+- **Neo4j** (AuraDB) - mentorship, follows, rivalries between students, and problem
+  similarity (relationship-heavy queries)
+
+One LLM call reads all three schemas and picks which database (and query language)
+fits the question - see DECISIONS.md for how the routing works.
+
 ## Quick start
 
 ```bash
-make up      # builds and starts postgres + backend + frontend
-make seed    # populates sample data (needed once, or after a volume reset)
+make up        # builds and starts postgres + backend + frontend, auto-seeds
+               # any database that's currently empty
 ```
 
 Then open http://localhost:5173. Backend runs at http://localhost:8000.
 
 Other commands:
 ```bash
-make logs    # tail all service logs
-make down    # stop everything, keep data
-make reset   # wipe the database and start fresh, then reseed
+make logs           # tail all service logs
+make down            # stop everything, keep data
+make reset           # wipe local Postgres volume, start fresh, reseed
+make seed-postgres   # force-reseed Postgres with fresh random data
+make seed-mongo      # force-reseed Mongo
+make seed-neo4j      # force-reseed Neo4j
+make seed-all        # all three
 ```
 
 ## Backend
@@ -33,56 +47,66 @@ FastAPI app in `backend/`, containerized alongside Postgres and the frontend
 handles it.
 
 - `GET /health` - confirms API and DB connectivity
+- `GET /schema` - structure + live record counts for all three databases
 - `POST /query` - runs raw SQL directly (scaffold only, no LLM - see DECISIONS.md)
-- `POST /ask` - takes a question + optional conversation history. Routes
-  to Postgres, MongoDB, or Neo4j automatically based on the question
-  (one LLM call picks the database and generates the matching query:
-  SQL, a Mongo filter/pipeline, or Cypher), or returns a clarifying
-  question if ambiguous.
+- `POST /ask` - takes a question + optional conversation history. Routes to
+  Postgres, MongoDB, or Neo4j automatically (one LLM call picks the database and
+  generates the matching query - SQL, a Mongo filter/pipeline, or Cypher), or
+  returns a clarifying question if ambiguous.
 
-LLM provider is configurable via `LLM_PROVIDER` in `.env` (currently `claude`;
-built behind a provider interface so Gemini can be added later without
-touching the rest of the app).
+LLM provider order is configurable via `LLM_PROVIDER_ORDER` in `.env`
+(e.g. `claude,gemini`) - tries each in order, falling through on failure. Built
+behind a provider interface (`LLMProvider`) so adding another model is a new
+provider class, not a rewrite.
 
 ## Frontend
 
-React + Vite app in `frontend/`. A judge-terminal-styled UI: every answer gets
-a verdict badge (AC/PENDING/CE), a collapsible query panel next to its output,
-and a chart auto-picked from the result shape (line for trends, pie for small
-breakdowns, horizontal/vertical bar otherwise) with a legend, or a table when
-no chart fits.
-Conversation history persists across page reloads (rolling 24h window,
-clearable via the "clear history" button).
+React + Vite app in `frontend/`. A judge-terminal-styled UI:
+- Every answer gets a verdict badge (AC/PENDING/CE) and a source tag showing
+  which database answered it (postgres/mongodb/neo4j, color-coded)
+- Postgres results render as a table or an auto-picked chart (line/pie/bar,
+  based on result shape) with a legend
+- Mongo results render as document cards (nested fields shown properly, not
+  flattened into table rows)
+- A collapsible query panel sits beside each result, showing the generated
+  SQL/Mongo query/Cypher
+- Dark/light theme toggle, persisted
+- Conversation history persists across page reloads (rolling 24h window,
+  clearable via the "clear history" button)
+- "View schema" shows structure + live seeded counts for all three databases,
+  tabbed by source
 
 ## Safety
 
-Queries run through app-level validation (SELECT-only, blocked keywords)
-and a DB-level read-only Postgres role. Both are tested independently -
-see DECISIONS.md.
-
-## Results
-
-Seeded dataset: 300 students, 40 contests, 320 problems, ~12k submissions
-across 3 platforms (Codeforces, LeetCode, CodeChef). Regenerates with
-different (but similarly realistic) numbers each time `make seed` runs.
+- **Postgres**: app-level query validation (SELECT-only, blocked keywords) +
+  DB-level read-only role. Both verified independently.
+- **MongoDB**: only `find`/`aggregate` are ever callable (no raw query strings),
+  plus a DB-level read-only Atlas user. Both verified independently.
+- **Neo4j**: app-level Cypher validation only (regex-blocks write clauses
+  anywhere in the query text) - Aura's Free tier doesn't support a DB-level
+  read-only role. Known single-layer gap, documented in DECISIONS.md.
 
 ## Design decisions
 
-See `DECISIONS.md` for why Postgres-first, the LLM provider abstraction,
-containerizing the whole stack, and other key choices.
+See `DECISIONS.md` for the full history - why Postgres-first then Mongo/Neo4j,
+the LLM provider abstraction and fallback, containerizing the whole stack, the
+routing design, and the debugging lessons picked up along the way.
 
 ## Local dev gotchas
 
 - **Running scripts outside Docker** (e.g. one-off debugging) still needs
-  `source venv/bin/activate` from the project root first. A missing
-  `(venv)` prefix in your prompt means commands will fail with "module not
-  found" or "command not found".
-- **`docker compose down` vs `down -v`**: plain `down` keeps your data.
-  `down -v` wipes the Postgres volume entirely - schema and the read-only
-  role recreate themselves automatically on next `up -d` (see
-  DECISIONS.md), but you'll need to rerun `make seed`.
-- **Renaming the project folder**: delete and recreate `venv/` afterward -
-  it bakes in absolute paths and won't follow the rename on its own.
-- **Editing code across multiple files for one change**: double-check each
-  file's full import list after edits, not just the lines that changed - a
-  partial edit that only shows a diff can silently drop an existing import.
+  `source venv/bin/activate` from the project root first.
+- **`.env` changes need a container recreate**: `docker compose up -d
+  --force-recreate <service>` - editing `.env` alone has no effect on an
+  already-running container.
+- **`requirements.txt` changes need a rebuild**: `docker compose up -d --build
+  <service>`.
+- **`docker compose down` vs `down -v`**: plain `down` keeps your data. `down -v`
+  wipes the local Postgres volume - schema and the read-only role recreate
+  themselves automatically on next `up`, Mongo/Neo4j are external services and
+  are untouched either way.
+- **Renaming the project folder**: delete and recreate `venv/` afterward - it
+  bakes in absolute paths and won't follow the rename on its own.
+- **After any manual multi-line edit to a Python file**: run `python3 -m
+  py_compile <file>` before rebuilding - catches indentation/syntax errors in
+  under a second instead of chasing a traceback through several rebuild cycles.

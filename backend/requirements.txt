@@ -8,3 +8,4 @@ faker
 google-genai
 pymongo
 neo4j
+slowapi

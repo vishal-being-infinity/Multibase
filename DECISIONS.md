@@ -250,3 +250,43 @@ correct data from earlier direct checkpoint tests: "who does Jordan
 Hines mentor" correctly returned Michael Smith and Jeffrey White via
 neo4j; "problems similar to problem 35" correctly returned the same
 shared-tag matches.
+
+## Auto-seed-if-empty on `make up`, explicit force-reseed kept separate
+`make up` now runs seed_if_needed.py automatically - checks if
+Postgres/Mongo/Neo4j are empty and seeds only if so, so a fresh fork's
+setup is just "fill .env, make up" with no separate seed step to
+remember. Kept explicit `make seed-postgres` / `seed-mongo` / `seed-neo4j`
+/ `seed-all` for force-reseeding with fresh random data on demand -
+different purpose (auto-seed is "make sure it's not empty", force-reseed
+is "I want new random numbers"), so kept as separate commands.
+Renamed scripts/seed.py -> scripts/seed_postgres.py for symmetry with
+seed_mongo.py/seed_neo4j.py now that there are three databases.
+
+## GeminiProvider had drifted out of sync with the 3-database routing
+gemini_provider.py was still the original Postgres-only version from
+before Mongo/Neo4j routing was added - would have silently only ever
+queried Postgres if it were ever actually used as a fallback, despite
+LLMResponse requiring target_db/mongo_query/cypher fields. Rewrote to
+mirror ClaudeProvider's shape: a flat response_schema with target_db +
+per-database fields (sql / mongo_collection+operation+filter+pipeline /
+cypher), normalized to the same LLMResponse via _to_response(), same
+pattern as Claude's tool-based routing.
+Verified the fallback actually works, not just that each provider works
+alone: temporarily invalidated ANTHROPIC_API_KEY, confirmed /ask still
+returned a correct answer via Gemini, then restored the real key.
+
+## /schema endpoint added - live record counts, not hardcoded numbers
+Frontend's schema modal was calling /schema before the endpoint existed.
+Built it to return structure (tables/collections/nodes/relationships)
+plus a live count per one, queried through the same safe read functions
+used everywhere else (run_query, run_aggregate with a $count stage,
+run_cypher with count()) rather than a separate raw-access path.
+This also makes the README's "Results" numbers unnecessary to hand-
+maintain - the in-app schema modal is now the live source of truth.
+
+## Neo4j frontend visualization: not yet built
+Neo4j results currently render as a plain table/list like any other
+result, not the static node-link diagram originally planned (see the
+"simple static node-link diagram first, upgrade later" decision).
+Routing and safety are done and verified; the graph visualization itself
+is still open work.

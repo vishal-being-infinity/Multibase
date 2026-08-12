@@ -28,7 +28,7 @@ class UnsafeQueryError(Exception):
 # rejects anything that isn't a plain SELECT, before it ever reaches the DB
 def validate_readonly(sql: str) -> None:
     normalized = sql.strip().upper()
-    if not normalized.startswith("SELECT"):
+    if not (normalized.startswith("SELECT") or normalized.startswith("WITH")):
         raise UnsafeQueryError("only SELECT queries are allowed")
     if any(keyword in normalized for keyword in BLOCKED_KEYWORDS):
         raise UnsafeQueryError("query contains a disallowed keyword")

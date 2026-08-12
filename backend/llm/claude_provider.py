@@ -3,9 +3,10 @@ Claude implementation of LLMProvider. Uses forced tool use so the response
 is always valid structured data - no JSON parsing guesswork.
 """
 
+import time
 import os
 
-from anthropic import Anthropic
+from anthropic import Anthropic, OverloadedError
 
 from .base import LLMProvider, LLMResponse
 
@@ -52,26 +53,31 @@ class ClaudeProvider(LLMProvider):
         self.client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         self.model = "claude-sonnet-5"
 
-    # sends the conversation history + schema to Claude, forces the process_question tool, returns parsed result
+    # sends the conversation history + schema to Claude, retries briefly on transient overload
     def process_question(self, history: list, schema_context: str) -> LLMResponse:
         messages = [{"role": turn["role"], "content": turn["content"]} for turn in history]
-        # prepend schema context onto the first user message so Claude has it from the start
         messages[0]["content"] = f"Schema:\n{schema_context}\n\n{messages[0]['content']}"
 
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            tools=[RESPONSE_TOOL],
-            tool_choice={"type": "tool", "name": "process_question"},
-            messages=messages,
-        )
-
-        tool_block = next(b for b in message.content if b.type == "tool_use")
-        result = tool_block.input
-
-        return LLMResponse(
-            status=result.get("status"),
-            sql=result.get("sql"),
-            clarifying_question=result.get("clarifying_question"),
-        )
+        last_error = None
+        for attempt in range(3):
+            try:
+                message = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=1024,
+                    system=SYSTEM_PROMPT,
+                    tools=[RESPONSE_TOOL],
+                    tool_choice={"type": "tool", "name": "process_question"},
+                    messages=messages,
+                )
+                tool_block = next(b for b in message.content if b.type == "tool_use")
+                result = tool_block.input
+                return LLMResponse(
+                    status=result.get("status"),
+                    sql=result.get("sql"),
+                    clarifying_question=result.get("clarifying_question"),
+                )
+            except OverloadedError as e:
+                last_error = e
+                if attempt < 2:
+                    time.sleep(2 ** attempt)  # 1s, then 2s
+        raise last_error

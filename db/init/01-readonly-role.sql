@@ -1,0 +1,5 @@
+CREATE ROLE nl2sql_readonly WITH LOGIN PASSWORD 'readonly_pass';
+GRANT CONNECT ON DATABASE nl2sql_db TO nl2sql_readonly;
+GRANT USAGE ON SCHEMA public TO nl2sql_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO nl2sql_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO nl2sql_readonly;

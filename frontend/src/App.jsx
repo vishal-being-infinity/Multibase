@@ -1,13 +1,23 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, createContext, useContext } from "react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid,
 } from "recharts";
 import "./App.css";
 
-const API_URL = "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const PALETTE = ["#3fb950", "#4c8bf5", "#d4a72c", "#f85149", "#a78bfa", "#5fb0e8", "#e88b4f", "#6bc9c9"];
 const LEGEND_LIMIT = 12;
+const THEME_KEY = "multibase-theme";
+const HISTORY_KEY = "multibase-chat";
+const HISTORY_TTL_MS = 24 * 60 * 60 * 1000; // rolling 24h - refreshed on every new message
+
+// recharts wants real color strings (not CSS var()) for SVG props, so each
+// theme gets its own small lookup instead of relying on var() in inline SVG attrs.
+const CHART_THEME = {
+  dark: { grid: "#1a1f2b", axisLine: "#232937", tick: "#6b7280", line: "#4c8bf5", cursor: "rgba(76, 139, 245, 0.06)" },
+  light: { grid: "#e4e7ec", axisLine: "#d7dbe3", tick: "#6b7280", line: "#1f6feb", cursor: "rgba(31, 111, 235, 0.07)" },
+};
 
 const SUGGESTIONS = [
   { text: "which students solved the most hard problems?", hint: "aggregate" },
@@ -15,12 +25,67 @@ const SUGGESTIONS = [
   { text: "submissions per day this month", hint: "trend" },
 ];
 
+const ThemeContext = createContext("dark");
+
+function getInitialTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    /* localStorage unavailable, fall through to system preference */
+  }
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+// restores the saved transcript if it's still within its rolling 24h window,
+// otherwise drops whatever's stored so a stale chat never resurfaces silently
+function loadStoredMessages() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const { messages, savedAt } = JSON.parse(raw);
+    if (!Array.isArray(messages) || typeof savedAt !== "number") return [];
+    if (Date.now() - savedAt > HISTORY_TTL_MS) {
+      localStorage.removeItem(HISTORY_KEY);
+      return [];
+    }
+    return messages;
+  } catch {
+    return [];
+  }
+}
+
 function colorAt(i) { return PALETTE[i % PALETTE.length]; }
 function humanize(col) { return String(col).replace(/_/g, " "); }
 function fmtNum(n) {
   if (typeof n !== "number" || Number.isNaN(n)) return n;
   const rounded = Math.round(n * 100) / 100;
   return rounded.toLocaleString();
+}
+
+// small inline icons for the theme toggle knob - real SVGs rather than unicode
+// glyphs so sun/moon render identically (and legibly) across every platform
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8L6 18M18 6l1.8-1.8" />
+    </svg>
+  );
+}
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" stroke="none">
+      <path d="M20.5 14.5a8.5 8.5 0 1 1-9-11 7 7 0 0 0 9 11z" />
+    </svg>
+  );
+}
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13M10 11v6M14 11v6" />
+    </svg>
+  );
 }
 
 function Verdict({ status }) {
@@ -127,15 +192,18 @@ function TableView({ rows }) {
 }
 
 function ChartView({ type, rows, labelCol, numericCol }) {
+  const theme = useContext(ThemeContext);
+  const c = CHART_THEME[theme];
+
   if (type === "line") {
     return (
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-          <CartesianGrid stroke="#1a1f2b" vertical={false} />
-          <XAxis dataKey={labelCol} tick={{ fontSize: 10, fill: "#6B7280" }} axisLine={{ stroke: "#232937" }} tickLine={false} />
-          <YAxis tick={{ fontSize: 10, fill: "#6B7280" }} axisLine={false} tickLine={false} />
+          <CartesianGrid stroke={c.grid} vertical={false} />
+          <XAxis dataKey={labelCol} tick={{ fontSize: 10, fill: c.tick }} axisLine={{ stroke: c.axisLine }} tickLine={false} />
+          <YAxis tick={{ fontSize: 10, fill: c.tick }} axisLine={false} tickLine={false} />
           <Tooltip content={<ChartTooltip />} />
-          <Line type="monotone" dataKey={numericCol} stroke="#4c8bf5" strokeWidth={2} dot={{ r: 3, fill: "#4c8bf5" }} isAnimationActive={false} />
+          <Line type="monotone" dataKey={numericCol} stroke={c.line} strokeWidth={2} dot={{ r: 3, fill: c.line }} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     );
@@ -156,9 +224,9 @@ function ChartView({ type, rows, labelCol, numericCol }) {
     return (
       <ResponsiveContainer width="100%" height={Math.max(160, rows.length * 28)}>
         <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-          <XAxis type="number" tick={{ fontSize: 10, fill: "#6B7280" }} axisLine={{ stroke: "#232937" }} tickLine={false} />
-          <YAxis type="category" dataKey={labelCol} tick={{ fontSize: 10, fill: "#6B7280" }} width={110} axisLine={false} tickLine={false} />
-          <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(76,139,245,0.06)" }} />
+          <XAxis type="number" tick={{ fontSize: 10, fill: c.tick }} axisLine={{ stroke: c.axisLine }} tickLine={false} />
+          <YAxis type="category" dataKey={labelCol} tick={{ fontSize: 10, fill: c.tick }} width={110} axisLine={false} tickLine={false} />
+          <Tooltip content={<ChartTooltip />} cursor={{ fill: c.cursor }} />
           <Bar dataKey={numericCol} radius={[0, 3, 3, 0]} isAnimationActive={false}>
             {rows.map((_, i) => <Cell key={i} fill={colorAt(i)} />)}
           </Bar>
@@ -169,9 +237,9 @@ function ChartView({ type, rows, labelCol, numericCol }) {
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <XAxis dataKey={labelCol} tick={{ fontSize: 10, fill: "#6B7280" }} interval={0} angle={-25} textAnchor="end" height={55} axisLine={{ stroke: "#232937" }} tickLine={false} />
-        <YAxis tick={{ fontSize: 10, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-        <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(76,139,245,0.06)" }} />
+        <XAxis dataKey={labelCol} tick={{ fontSize: 10, fill: c.tick }} interval={0} angle={-25} textAnchor="end" height={55} axisLine={{ stroke: c.axisLine }} tickLine={false} />
+        <YAxis tick={{ fontSize: 10, fill: c.tick }} axisLine={false} tickLine={false} />
+        <Tooltip content={<ChartTooltip />} cursor={{ fill: c.cursor }} />
         <Bar dataKey={numericCol} radius={[3, 3, 0, 0]} isAnimationActive={false}>
           {rows.map((_, i) => <Cell key={i} fill={colorAt(i)} />)}
         </Bar>
@@ -338,12 +406,13 @@ function SchemaModal({ open, onClose, data, loading, error, onRetry }) {
 export default function App() {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState([]);
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(loadStoredMessages);
   const [loading, setLoading] = useState(false);
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [schema, setSchema] = useState(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaError, setSchemaError] = useState(null);
+  const [theme, setTheme] = useState(getInitialTheme);
   const transcriptRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -351,6 +420,44 @@ export default function App() {
     const el = transcriptRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
+
+  // persist the transcript on every change - savedAt is rewritten each time,
+  // so the 24h expiry rolls forward as long as the chat stays active
+  useEffect(() => {
+    try {
+      if (messages.length === 0) {
+        localStorage.removeItem(HISTORY_KEY);
+      } else {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify({ messages, savedAt: Date.now() }));
+      }
+    } catch {
+      /* storage unavailable or full - the transcript just won't survive a reload */
+    }
+  }, [messages]);
+
+  function clearHistory() {
+    setMessages([]);
+    setHistory([]);
+    try {
+      localStorage.removeItem(HISTORY_KEY);
+    } catch {
+      /* localStorage unavailable - nothing to clean up */
+    }
+  }
+
+  // sync before paint so switching themes never flashes the previous palette
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* localStorage unavailable, theme just won't persist across reloads */
+    }
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }
 
   async function submitQuestion(text) {
     if (!text.trim() || loading) return;
@@ -412,6 +519,7 @@ export default function App() {
   }
 
   return (
+    <ThemeContext.Provider value={theme}>
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
@@ -421,6 +529,28 @@ export default function App() {
 </span>
         </div>
         <div className="topbar-right">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={theme === "light"}
+            className={`theme-toggle${theme === "light" ? " is-light" : ""}`}
+            onClick={toggleTheme}
+            title={`switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            aria-label="toggle color theme"
+          >
+            <span className="theme-toggle-knob">{theme === "light" ? <SunIcon /> : <MoonIcon />}</span>
+          </button>
+          <span className="topbar-sep">&middot;</span>
+          <button
+            type="button"
+            className="schema-link"
+            onClick={clearHistory}
+            disabled={loading || messages.length === 0}
+            title="clear saved chat history"
+          >
+            <TrashIcon /> clear
+          </button>
+          <span className="topbar-sep">&middot;</span>
           <button type="button" className="schema-link" onClick={openSchema}>
             <span className="schema-link-icon">&#9638;</span> schema
           </button>
@@ -451,37 +581,41 @@ export default function App() {
         )}
       </main>
 
-      <div className="quick-prompts">
-        <div className="quick-prompts-inner">
-          <span className="quick-prompts-label">try</span>
-          <div className="quick-prompts-row">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s.text}
-                type="button"
-                className="quick-prompt-chip"
-                onClick={() => submitQuestion(s.text)}
-                disabled={loading}
-              >
-                {s.text}
-              </button>
-            ))}
+      <div className="composer">
+        <div className="quick-prompts">
+          <div className="quick-prompts-inner">
+            <span className="quick-prompts-label">try</span>
+            <div className="quick-prompts-row">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s.text}
+                  type="button"
+                  className="quick-prompt-chip"
+                  onClick={() => submitQuestion(s.text)}
+                  disabled={loading}
+                >
+                  {s.text}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
 
-      <form onSubmit={handleAsk} className="input-bar">
-        <span className="prompt-glyph">&gt;</span>
-        <input
-          ref={inputRef}
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="ask a question about students, contests, or submissions"
-          aria-label="Ask a question"
-          autoFocus
-        />
-        <button type="submit" disabled={loading || !question.trim()}>submit</button>
-      </form>
+        <form onSubmit={handleAsk} className="input-bar">
+          <div className="input-bar-inner">
+            <span className="prompt-glyph">&gt;</span>
+            <input
+              ref={inputRef}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="ask a question about students, contests, or submissions"
+              aria-label="Ask a question"
+              autoFocus
+            />
+            <button type="submit" disabled={loading || !question.trim()}>submit</button>
+          </div>
+        </form>
+      </div>
 
       <SchemaModal
         open={schemaOpen}
@@ -492,5 +626,6 @@ export default function App() {
         onRetry={loadSchema}
       />
     </div>
+    </ThemeContext.Provider>
   );
 }

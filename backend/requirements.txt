@@ -6,3 +6,4 @@ anthropic
 python-dotenv
 faker
 google-genai
+pymongo

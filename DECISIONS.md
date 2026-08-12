@@ -42,11 +42,6 @@ Trade-off: slightly more payload per request, and the client must track
 history correctly - acceptable for v1, revisit if this becomes a real API
 with many concurrent users.
 
-Yes, quite a bit accumulated — let's catch up the docs properly since we went through some real debugging that's worth remembering.
-
-Update DECISIONS.md — add these entries:
-
-markdown
 ## Project renamed nl2sql-project -> Multibase
 Reflects the actual direction: Postgres now, Mongo and Neo4j later. The old
 name only described the first phase.
@@ -106,35 +101,105 @@ proper secret handling before real deployment.
 
 ## Retry Claude API calls on 529 (overloaded), not other errors
 Anthropic's API occasionally returns 529 during high demand, which is
-transient and worth a short retry (2 attempts, exponential backoff).
-Other errors (bad key, invalid request) fail immediately rather than
-wasting time retrying something that won't self-resolve.
-Correct exception is `anthropic.InternalServerError` with
-`status_code == 529` - not `OverloadedError`, which isn't an importable
-exception in the SDK despite appearing in some naming.
+transient and worth a short retry (exponential backoff with jitter, 5
+attempts). Other errors (bad key, invalid request) fail immediately
+rather than wasting time retrying something that won't self-resolve.
+Correction after initial fix attempts: the raised exception is
+`anthropic.OverloadedError`, but it isn't reliably importable across SDK
+versions. Settled on catching the base `anthropic.APIStatusError` and
+checking `e.status_code == 529` instead - robust to exact subclass
+naming, works regardless of which specific error class the SDK raises.
 
-## Conversation history persists client-side with rolling 24h expiry
-Chat history is saved to [localStorage/wherever you land], with a rolling
-24-hour window that resets on each new message rather than a fixed expiry
-from first message. A manual "clear history" button lets the user reset
-early.
-Trade-off: [whatever you actually run into - e.g. history lost if
-localStorage is cleared, or doesn't sync across devices/browsers].
+## Multi-provider fallback: Claude -> Gemini
+Built on top of the existing LLMProvider interface, so main.py didn't
+need to change shape - only the factory and the /ask endpoint's call
+site.
+- llm/gemini_provider.py implements the same LLMProvider interface, using
+  Gemini's response_schema (structured output) as the equivalent of
+  Claude's forced tool use.
+- get_llm_provider() became get_llm_providers(), reading
+  LLM_PROVIDER_ORDER (e.g. "claude,gemini") and returning an ordered list.
+- /ask tries providers in order, catching APIStatusError (and other
+  exceptions) per provider and falling through to the next on failure.
+- Frontend priority selection (letting the user choose "Claude first" vs
+  "Gemini first") is deferred - not needed yet, noted for later.
+Direct motivation: repeated Claude 529 overload errors during dev were
+blocking testing entirely, with no fallback path.
 
-## Planned: multi-provider fallback (Claude <-> Gemini)
-Not built yet - noting the plan so it doesn't get lost.
+## MongoDB via Atlas (managed), not self-hosted Docker
+Considered running Mongo in docker-compose like Postgres, but chose Atlas
+free tier (M0) instead - consistent with the earlier decision to use
+managed Postgres (Neon/Supabase) for deployment rather than self-hosting.
+Same connection string works locally and in production with zero extra
+setup at deploy time, unlike a self-hosted container which would need
+somewhere to run in production.
+Trade-off: requires an Atlas account/signup before local dev works at
+all, and network access is currently 0.0.0.0/0 (open) for dev
+convenience - needs tightening to specific IPs before real deployment.
 
-The existing LLMProvider interface + get_llm_provider() factory already
-supports this without touching main.py:
-1. Add llm/gemini_provider.py implementing the same LLMProvider interface
-2. get_llm_provider() becomes get_llm_providers() - returns an ordered
-   list instead of a single instance
-3. /ask tries providers in priority order, catching provider failures
-   (e.g. Claude's 529 overload) and falling through to the next
-4. Frontend exposes a priority selector (e.g. "Claude first" vs "Gemini
-   first") sent as a param on /ask, or saved as a preference
+## Three Mongo collections, not one
+editorials alone felt like a token gesture rather than genuine polyglot
+use. Added problem_statements (full problem text - description,
+constraints, examples, which Postgres's problems table doesn't store)
+and submission_code (actual submitted code, which Postgres only has
+metadata for - verdict/runtime). Each is a natural fit for Mongo's
+flexible-document model and gives the upcoming routing logic real,
+distinct signal to route on.
+Links back to Postgres loosely via problem_id/submission_id - shared id
+convention, not a foreign key, checked at query time by the app rather
+than enforced by either database.
 
-This is why the provider abstraction was built as an interface from day
-one rather than calling the Anthropic SDK directly from main.py -
-exactly this kind of extension shouldn't require touching the rest of
-the app.
+## Mongo schema described in plain text for the LLM, same as Postgres
+Mongo has no enforced schema, but the LLM still needs to know field names
+and types to generate correct queries. mongo_schema_context.py mirrors
+schema_context.py's job - not database-level validation, just what the
+LLM is told before it writes a query. Considered adding a $jsonSchema
+validator on the collections too, for actual write-time enforcement -
+deferred for now since it's easy to retrofit later and the LLM-facing
+schema doc was the higher-priority piece.
+
+## seed_mongo.py needs the full container path, not a relative one
+The backend Dockerfile sets WORKDIR to /app/backend, but scripts/ lives
+at /app/scripts (one level up) - same layout as the local project.
+`docker compose exec backend python /app/scripts/seed_mongo.py`, not a
+path relative to the backend folder.
+
+## Mongo safety: allowed-collection allowlist + read-only Atlas role, no query-string validation needed
+Unlike Postgres (where the LLM generates a raw SQL string that needs
+keyword/prefix validation), Mongo queries are never raw strings here -
+only find() and aggregate() are exposed as callable operations, so
+insert/update/delete aren't reachable even in principle. Added an
+explicit block on aggregation's $merge/$out stages, since those can
+write despite aggregate() otherwise being read-only.
+Verified independently, same pattern as Postgres: insert was rejected
+both by Atlas itself (read-only database user) and by the app-level
+collection allowlist.
+
+## .env changes require recreating the container, not just editing the file
+docker-compose reads env_file once at container start. Editing .env
+afterward has no effect on an already-running container - caused a
+confusing "URL still has placeholder value" bug that looked like a typo
+but was actually a stale container.
+Fix: `docker compose up -d --force-recreate <service>` after any .env
+change, or `docker compose up -d` which usually recreates services with
+changed config automatically.
+
+## Routing: one forced-tool-call picks the database AND generates the query
+Rather than a separate "classify which DB" step before query generation,
+Claude gets three tools in one call (query_postgres, query_mongo,
+ask_clarification) with tool_choice: "any" (forces some tool, not a
+specific one). It picks the right database and writes the matching query
+language in a single round trip.
+
+## tool_choice: "any" doesn't guarantee every "required" schema field is filled
+Unlike tool_choice targeting one specific tool, forcing "any" tool from a
+set is looser - Claude called query_mongo but sometimes omitted
+"operation" despite it being marked required in the schema. Fixed by
+inferring operation from whichever of filter/pipeline was actually
+present, rather than trusting the field blindly.
+
+## Lesson: verify a fix landed in the actual running file, not just what was pasted
+Spent real debugging time because a shown "fix" wasn't actually saved to
+main.py on disk - the container kept running the old code. Now standard
+practice after any edit: grep the change on the host file AND inside the
+container before retesting, rather than assuming a save took effect.

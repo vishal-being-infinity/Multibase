@@ -8,21 +8,21 @@ from abc import ABC, abstractmethod
 from typing import TypedDict
 
 
-# one exchange in the conversation - either the user or the assistant
 class Turn(TypedDict):
-    role: str  # "user" or "assistant"
+    role: str
     content: str
 
 
-# shape returned by any provider - either a clarifying question or a SQL query
+# shape returned by any provider - which database (if any) to query, and how
 class LLMResponse(TypedDict):
-    status: str  # "clear" or "ambiguous"
-    sql: str | None
+    status: str                # "clear" or "ambiguous"
+    target_db: str | None      # "postgres" or "mongo", only set when status is "clear"
+    sql: str | None            # set when target_db is "postgres"
+    mongo_query: dict | None   # set when target_db is "mongo" - {collection, operation, filter/pipeline, limit}
     clarifying_question: str | None
 
 
 class LLMProvider(ABC):
-    # takes the full conversation so far + schema description, returns either sql or a clarifying question
     @abstractmethod
-    def process_question(self, history: list[Turn], schema_context: str) -> LLMResponse:
+    def process_question(self, history: list[Turn], schema_context: str, mongo_schema_context: str = "") -> LLMResponse:
         ...

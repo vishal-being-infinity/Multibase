@@ -11,6 +11,8 @@ from schema_context import SCHEMA_CONTEXT
 from llm.base import Turn
 from anthropic import APIStatusError
 from llm.factory import get_llm_providers
+from mongo_db import run_find, run_aggregate, UnsafeMongoQueryError
+from mongo_schema_context import MONGO_SCHEMA_CONTEXT
 
 from fastapi.middleware.cors import CORSMiddleware
 from db import run_query, UnsafeQueryError
@@ -67,11 +69,8 @@ def ask(req: AskRequest):
     last_error = None
     for provider in providers:
         try:
-            result = provider.process_question(turns, SCHEMA_CONTEXT)
-            break  # success - stop trying further providers
-        except APIStatusError as e:
-            last_error = e
-            continue  # this provider failed, try the next one in the list
+            result = provider.process_question(turns, SCHEMA_CONTEXT, MONGO_SCHEMA_CONTEXT)
+            break
         except Exception as e:
             last_error = e
             continue
@@ -83,9 +82,23 @@ def ask(req: AskRequest):
         return {"status": "ambiguous", "clarifying_question": result["clarifying_question"]}
 
     try:
-        rows = run_query(result["sql"])
-        return {"status": "ok", "sql": result["sql"], "row_count": len(rows), "rows": rows}
-    except UnsafeQueryError as e:
+        if result["target_db"] == "postgres":
+            rows = run_query(result["sql"])
+            return {"status": "ok", "source": "postgres", "sql": result["sql"], "row_count": len(rows), "rows": rows}
+
+        elif result["target_db"] == "mongo":
+            mq = result["mongo_query"]
+            operation = mq.get("operation") or ("aggregate" if mq.get("pipeline") else "find")
+            if operation == "find":
+                rows = run_find(mq["collection"], mq.get("filter", {}), mq.get("limit", 20))
+            else:
+                rows = run_aggregate(mq["collection"], mq.get("pipeline", []))
+            return {"status": "ok", "source": "mongo", "sql": f"db.{mq['collection']}.{operation}(...)",
+                    "row_count": len(rows), "rows": rows}
+
+        raise HTTPException(status_code=500, detail=f"unknown target_db: {result['target_db']}")
+
+    except (UnsafeQueryError, UnsafeMongoQueryError) as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"generated SQL failed: {e}")
+        raise HTTPException(status_code=400, detail=f"query failed: {e}")

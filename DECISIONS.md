@@ -290,3 +290,39 @@ result, not the static node-link diagram originally planned (see the
 "simple static node-link diagram first, upgrade later" decision).
 Routing and safety are done and verified; the graph visualization itself
 is still open work.
+
+## Postgres moved to Neon (managed), local Docker container removed
+Completed the pattern started with Mongo/Neo4j - Postgres was the last
+self-hosted stateful piece. Moved to Neon's free tier for the same
+reasoning as Atlas/AuraDB: one connection string works locally and in
+production, nothing stateful to host at deploy time.
+Schema and read-only role applied manually via psql (Neon has no
+docker-entrypoint-initdb.d equivalent - db/init/*.sql auto-runs only for
+a local container's fresh volume). One correction needed during setup:
+db/init/01-readonly-role.sql hardcodes `GRANT CONNECT ON DATABASE
+nl2sql_db`, but Neon's default database is named `neondb` - the CONNECT
+grant had to be re-run manually with the correct database name.
+Verified independently, same as every other database: read-only role
+can read (300 students) and correctly can't write (DELETE rejected).
+
+## docker-compose.yml: postgres service removed entirely
+DATABASE_URL/READONLY_DATABASE_URL now come straight from .env (already
+complete Neon connection strings) via env_file, rather than being
+reconstructed from POSTGRES_USER/PASSWORD/DB parts. Removed the pgdata
+volume, the postgres healthcheck, and backend's depends_on: postgres -
+nothing local left to wait on. Multibase now has zero self-hosted
+stateful containers; only backend and frontend run locally.
+Also removed: stale commented-out mongo/neo4j service blocks that
+described a self-hosted approach we deliberately didn't take (see the
+earlier Atlas/AuraDB decisions) - left as dead comments they'd mislead
+anyone reading the file later.
+
+## Lesson: removing a service from docker-compose.yml doesn't stop its running container
+Editing the file to drop the `postgres` service didn't tear down the
+already-running `multibase_postgres` container from before the edit -
+Compose only manages containers matching its *current* config, so the
+orphaned container kept holding the shared network open, causing
+`docker compose down` to fail with "Resource is still in use."
+Fix: `docker rm -f <container>` then `docker network rm <network>`
+manually when a service is deliberately removed from the compose file,
+don't assume `down` cleans up containers that are no longer defined.

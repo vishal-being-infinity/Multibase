@@ -9,16 +9,16 @@ and returns results as a table, chart, document view, or summary.
 
 See `ARCHITECTURE.md` for the full diagram and data flow.
 
+
 ## Databases
 
-- **Postgres** - students, contests, problems, submissions (structured, relational)
-- **MongoDB** (Atlas) - editorials + discussion threads, full problem statements,
-  submitted code (flexible/nested content Postgres doesn't hold)
-- **Neo4j** (AuraDB) - mentorship, follows, rivalries between students, and problem
-  similarity (relationship-heavy queries)
+- **Postgres** (Neon) - students, contests, problems, submissions
+- **MongoDB** (Atlas) - editorials + discussion threads, full problem
+  statements, submitted code
+- **Neo4j** (AuraDB) - mentorship, follows, rivalries between students,
+  and problem similarity
 
-One LLM call reads all three schemas and picks which database (and query language)
-fits the question - see DECISIONS.md for how the routing works.
+All three are managed cloud services - no local database containers.
 
 ## Quick start
 
@@ -101,12 +101,11 @@ routing design, and the debugging lessons picked up along the way.
   already-running container.
 - **`requirements.txt` changes need a rebuild**: `docker compose up -d --build
   <service>`.
-- **`docker compose down` vs `down -v`**: plain `down` keeps your data. `down -v`
-  wipes the local Postgres volume - schema and the read-only role recreate
-  themselves automatically on next `up`, Mongo/Neo4j are external services and
-  are untouched either way.
 - **Renaming the project folder**: delete and recreate `venv/` afterward - it
   bakes in absolute paths and won't follow the rename on its own.
 - **After any manual multi-line edit to a Python file**: run `python3 -m
   py_compile <file>` before rebuilding - catches indentation/syntax errors in
   under a second instead of chasing a traceback through several rebuild cycles.
+- **Removing a service from `docker-compose.yml`**: doesn't stop its
+  already-running container. Manually `docker rm -f <container>` and
+  `docker network rm <network>` if you hit "Resource is still in use."

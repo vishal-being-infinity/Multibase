@@ -865,9 +865,17 @@ body {
 .quick-prompt-mongo { background: var(--ac); border-color: var(--ac); color: #06150a; }
 .quick-prompt-neo4j { background: var(--error); border-color: var(--error); color: #fff; }
 
-.quick-prompt-postgres:hover { background: rgba(76, 139, 245, 0.08); }
-.quick-prompt-mongo:hover { background: rgba(63, 185, 80, 0.08); }
-.quick-prompt-neo4j:hover { background: rgba(248, 81, 73, 0.08); }
+.quick-prompt-postgres,
+.quick-prompt-mongo,
+.quick-prompt-neo4j {
+  transition: transform 0.15s ease;
+}
+
+.quick-prompt-postgres:hover,
+.quick-prompt-mongo:hover,
+.quick-prompt-neo4j:hover {
+  transform: scale(1.015);
+}
 
 .db-legend {
   display: flex;

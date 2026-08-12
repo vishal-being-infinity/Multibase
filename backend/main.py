@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from db import run_query, UnsafeQueryError
+from postgres_db import run_query, UnsafeQueryError
 from llm.factory import get_llm_providers
 from mongo_db import run_aggregate, run_find, UnsafeMongoQueryError
 from mongo_schema_context import MONGO_SCHEMA_CONTEXT

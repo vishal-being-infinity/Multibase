@@ -403,6 +403,41 @@ function SchemaModal({ open, onClose, data, loading, error, onRetry }) {
   );
 }
 
+// generic yes/no dialog - reuses the schema modal's chrome so it doesn't
+// introduce a second visual language for overlays
+function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onCancel }) {
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel]);
+
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal confirm-modal" role="alertdialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <h2 className="modal-title">{title}</h2>
+            <p className="modal-sub">{message}</p>
+          </div>
+          <button className="modal-close" onClick={onCancel} aria-label="cancel">&times;</button>
+        </div>
+        <div className="confirm-actions">
+          <button type="button" className="confirm-btn" onClick={onCancel}>cancel</button>
+          <button type="button" className="confirm-btn confirm-btn-danger" onClick={onConfirm} autoFocus>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState([]);
@@ -412,6 +447,7 @@ export default function App() {
   const [schema, setSchema] = useState(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaError, setSchemaError] = useState(null);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [theme, setTheme] = useState(getInitialTheme);
   const transcriptRef = useRef(null);
   const inputRef = useRef(null);
@@ -438,6 +474,7 @@ export default function App() {
   function clearHistory() {
     setMessages([]);
     setHistory([]);
+    setConfirmClearOpen(false);
     try {
       localStorage.removeItem(HISTORY_KEY);
     } catch {
@@ -544,15 +581,15 @@ export default function App() {
           <button
             type="button"
             className="schema-link"
-            onClick={clearHistory}
+            onClick={() => setConfirmClearOpen(true)}
             disabled={loading || messages.length === 0}
             title="clear saved chat history"
           >
-            <TrashIcon /> clear
+            <TrashIcon /> clear history
           </button>
           <span className="topbar-sep">&middot;</span>
           <button type="button" className="schema-link" onClick={openSchema}>
-            <span className="schema-link-icon">&#9638;</span> schema
+            <span className="schema-link-icon">&#9638;</span> view schema 
           </button>
           <span className="topbar-sep">&middot;</span>
           <span className="topbar-meta">postgres · claude</span>
@@ -624,6 +661,15 @@ export default function App() {
         loading={schemaLoading}
         error={schemaError}
         onRetry={loadSchema}
+      />
+
+      <ConfirmModal
+        open={confirmClearOpen}
+        title="clear chat history?"
+        message={`This removes all saved ${messages.length === 1 ? "message" : "messages"} from this device. This can't be undone.`}
+        confirmLabel="clear history"
+        onConfirm={clearHistory}
+        onCancel={() => setConfirmClearOpen(false)}
       />
     </div>
     </ThemeContext.Provider>

@@ -5,3 +5,4 @@ psycopg_pool
 anthropic
 python-dotenv
 faker
+google-genai

@@ -535,6 +535,7 @@ body {
 .query-trigger:focus-visible,
 .schema-link:focus-visible,
 .theme-toggle:focus-visible,
+.confirm-btn:focus-visible,
 .modal-close:focus-visible {
   outline: 2px solid var(--prompt);
   outline-offset: 2px;
@@ -568,6 +569,31 @@ body {
   animation: rise 0.2s var(--ease);
 }
 .schema-modal { max-width: 880px; }
+
+.confirm-modal { max-width: 400px; }
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 22px 20px;
+  flex-shrink: 0;
+}
+.confirm-btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.1s, background 0.15s, border-color 0.15s, color 0.15s;
+}
+.confirm-btn:hover { filter: brightness(1.08); }
+.confirm-btn:active { transform: translateY(1px); }
+.confirm-btn-danger { background: var(--error); border-color: var(--error); color: #fff; }
+.confirm-btn-danger:hover { filter: brightness(1.1); }
 
 .modal-head {
   display: flex;

@@ -120,3 +120,21 @@ from first message. A manual "clear history" button lets the user reset
 early.
 Trade-off: [whatever you actually run into - e.g. history lost if
 localStorage is cleared, or doesn't sync across devices/browsers].
+
+## Planned: multi-provider fallback (Claude <-> Gemini)
+Not built yet - noting the plan so it doesn't get lost.
+
+The existing LLMProvider interface + get_llm_provider() factory already
+supports this without touching main.py:
+1. Add llm/gemini_provider.py implementing the same LLMProvider interface
+2. get_llm_provider() becomes get_llm_providers() - returns an ordered
+   list instead of a single instance
+3. /ask tries providers in priority order, catching provider failures
+   (e.g. Claude's 529 overload) and falling through to the next
+4. Frontend exposes a priority selector (e.g. "Claude first" vs "Gemini
+   first") sent as a param on /ask, or saved as a preference
+
+This is why the provider abstraction was built as an interface from day
+one rather than calling the Anthropic SDK directly from main.py -
+exactly this kind of extension shouldn't require touching the rest of
+the app.

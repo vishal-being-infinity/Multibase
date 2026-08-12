@@ -7,9 +7,10 @@ FastAPI app entrypoint.
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from llm.factory import get_llm_provider
 from schema_context import SCHEMA_CONTEXT
 from llm.base import Turn
+from anthropic import APIStatusError
+from llm.factory import get_llm_providers
 
 from fastapi.middleware.cors import CORSMiddleware
 from db import run_query, UnsafeQueryError
@@ -59,12 +60,24 @@ class AskRequest(BaseModel):
 # takes a plain-english question (+ prior conversation), asks the LLM to clarify or generate SQL, runs it if clear
 @app.post("/ask")
 def ask(req: AskRequest):
-    llm = get_llm_provider()
-
-    # build the full turn list: prior history + this new question
     turns = req.history + [{"role": "user", "content": req.question}]
+    providers = get_llm_providers()
 
-    result = llm.process_question(turns, SCHEMA_CONTEXT)
+    result = None
+    last_error = None
+    for provider in providers:
+        try:
+            result = provider.process_question(turns, SCHEMA_CONTEXT)
+            break  # success - stop trying further providers
+        except APIStatusError as e:
+            last_error = e
+            continue  # this provider failed, try the next one in the list
+        except Exception as e:
+            last_error = e
+            continue
+
+    if result is None:
+        raise HTTPException(status_code=503, detail=f"all LLM providers failed: {last_error}")
 
     if result["status"] == "ambiguous":
         return {"status": "ambiguous", "clarifying_question": result["clarifying_question"]}
